@@ -1,0 +1,36 @@
+[project]
+authors = [
+    {name = "Eduardo", email = "e.git@xor.cl"},
+]
+requires-python = "<4.0,>=3.14"
+dependencies = [
+    "fluxer-py>=0.4.1",
+    "notion-client>=3.0.0",
+    "pydantic-settings>=2.13.1",
+]
+name = "fluxer-bot"
+version = "0.1.0"
+description = ""
+
+[dependency-groups]
+dev = [
+    "flake8<4.0.0,>=3.8.4",
+    "rope<1.0.0,>=0.18.0",
+    "ruff>=0.15.7",
+]
+
+[tool.uv]
+default-groups = "all"
+
+[tool.uv.build-backend]
+module-root = ""
+
+[tool.isort]
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+line_length = 88
+profile = "black"
+
+[tool.djlint]
+ignore = "H006,H022,H030,H031,H029"
