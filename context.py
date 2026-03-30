@@ -199,6 +199,7 @@ class Context:
             }
             student_page = self.student_notion_pages.get(username, None)
             if student_page is not None:
+                logger.info(f"found student page: {student_page}")
                 properties["Nombre Real"] = {"relation": [{"id": student_page.id}]}
             # get user page or create it if not exists
             query_params = {
