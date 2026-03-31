@@ -48,12 +48,13 @@ class Context:
     async def _get_channels(self, guild: fluxer.Guild):
         logger.info("retrieving guild channels...")
         self.channels = {}
-        channels = await self.bot._http.get_guild_channels(guild.id)
-        for channel_data in channels:
-            self.channels[channel_data.get("name")] = fluxer.Channel.from_data(
-                channel_data
-            )
-        logger.info(f"channels cached: {len(self.channels)}")
+        if self.bot._http is not None:
+            channels = await self.bot._http.get_guild_channels(guild.id)
+            for channel_data in channels:
+                self.channels[channel_data.get("name", "default")] = fluxer.Channel.from_data(
+                    channel_data
+                )
+            logger.info(f"channels cached: {len(self.channels)}")
 
     async def _get_members(self, guild: fluxer.Guild):
         logger.info("retrieving guild members...")
@@ -102,8 +103,8 @@ class Context:
         logger.info(f"students cached: {len(self.student_assignments)}")
 
     async def _compute_attendance(
-        self, start_date: datetime, end_date: datetime
-    ) -> dict(str, int):
+        self, start_date: datetime.datetime, end_date: datetime.datetime
+    ) -> dict[str, int]:
         query_params = {
             "data_source_id": app.notion_voicestate_events_datasource,
             "filter": {
@@ -125,8 +126,8 @@ class Context:
             "sorts": [{"property": "Fecha y Hora", "direction": "ascending"}],
         }
 
-        attendance_minutes: dict(str, int) = {}
-        connection_start_dates: dict(str, datetime) = {}
+        attendance_minutes: dict[str, int] = {}
+        connection_start_dates: dict[str, datetime.datetime|None] = {}
 
         logger.info("computing attendance...")
         async for page in notion_client.helpers.async_iterate_paginated_api(
@@ -144,6 +145,7 @@ class Context:
             except (IndexError, TypeError) as e:
                 logging.error(f"problems with event_actor: {e}")
                 event_actor = None
+                continue
             try:
                 event_type = (
                     properties.get("Tipo de Evento").get("select").get("name").strip()
@@ -166,7 +168,7 @@ class Context:
                 elif connection_start is not None and event_type == "Desconexión":
                     attendance_minutes[event_actor] = (
                         attendance_minutes.get(event_actor, 0)
-                        + (event_date - connection_start).total_seconds() / 60
+                        + round((event_date - connection_start).total_seconds() / 60)
                     )
                     connection_start_dates[event_actor] = None
         logger.info(
@@ -175,7 +177,7 @@ class Context:
         return attendance_minutes
 
     async def register_attendance(
-        self, event_name: str, start_date: datetime, end_date: datetime
+        self, event_name: str, start_date: datetime.datetime, end_date: datetime.datetime
     ):
         logger.info("adding event name to notion table...")
         # Add property if not exists
@@ -297,6 +299,7 @@ class Context:
                     name=f"{role.name} (Voz)",
                     type=fluxer.ChannelType.GUILD_TEXT,
                     parent_id=voice_category.id,
+                    voice_channel=True,
                     guild=guild,
                 )
                 await self.add_channel_to_role(
@@ -314,26 +317,28 @@ class Context:
         self,
         channel: fluxer.Channel,
         role: fluxer.Role,
-        allow: Permissions = None,
-        deny: Permissions = None,
+        allow: Permissions | None = None,
+        deny: Permissions | None = None,
     ):
         logger.info(f"ading role {role.name} to channel {channel.name}...")
-        await self.bot._http.edit_channel_permissions(
-            channel_id=channel.id,
-            overwrite_id=role.id,
-            allow=allow,
-            deny=deny,
-            type=0,
-        )
+        if self.bot._http is not None:
+            await self.bot._http.edit_channel_permissions(
+                channel_id=channel.id,
+                overwrite_id=role.id,
+                allow=allow,
+                deny=deny,
+                type=0,
+            )
 
-    async def get_or_create_role(self, name: str, guild: fluxer.Guild):
+    async def get_or_create_role(self, name: str, guild: fluxer.Guild) -> fluxer.Role:
         if name not in self.roles:
             logger.info(f"role {name} does not exist, creating...")
-            data = await self.bot._http.create_guild_role(
-                guild_id=guild.id,
-                name=name,
-            )
-            self.roles[name] = fluxer.Role.from_data(data)
+            if self.bot._http is not None:
+                data = await self.bot._http.create_guild_role(
+                    guild_id=guild.id,
+                    name=name,
+                )
+                self.roles[name] = fluxer.Role.from_data(data)
         return self.roles[name]
 
     async def get_or_create_channel(
@@ -341,14 +346,22 @@ class Context:
         name: str,
         type: fluxer.ChannelType,
         guild: fluxer.Guild,
-        parent_id: int = None,
+        voice_channel: bool = False,
+        parent_id: int | None = None,
     ) -> fluxer.Channel:
+        # Text created channels fix
+        if name in self.channels and voice_channel is True and not self.channels[name].is_voice_channel:
+            logger.info(f"channel {name} was text but it should have been voice, deleting it...")
+            if self.bot._http is not None:
+                await self.bot._http.delete_channel(self.channels[name].id)
+                del self.channels[name]
         if name not in self.channels:
             logger.info(f"channel {name} does not exist, creating...")
-            data = await self.bot._http.create_guild_channel(
-                guild_id=guild.id, name=name, type=type, parent_id=parent_id
-            )
-            self.channels[name] = fluxer.Channel.from_data(data)
+            if self.bot._http is not None:
+                data = await self.bot._http.create_guild_channel(
+                    guild_id=guild.id, name=name, type=type, parent_id=parent_id, voice_channel=voice_channel
+                )
+                self.channels[name] = fluxer.Channel.from_data(data)
         return self.channels[name]
 
     async def add_group_to_student(
@@ -358,16 +371,17 @@ class Context:
         guild: fluxer.Guild,
         bot: fluxer.Bot,
     ):
-        role_id = await self.get_or_create_role(role_name, guild)
+        role = await self.get_or_create_role(role_name, guild)
         logger.info(
             f"adding role {role_name} to student {member.user.username}#{member.user.discriminator}..."
         )
-        await bot._http.add_guild_member_role(
-            guild.id,
-            member.user.id,
-            role_id,
-            reason="Automatic role assignation by cc5325bot",
-        )
+        if bot._http is not None:
+            await bot._http.add_guild_member_role(
+                guild.id,
+                member.user.id,
+                role.id,
+                reason="Automatic role assignation by cc5325bot",
+            )
 
     async def register_voice_state(self, ctx: fluxer.VoiceState):
         user = self.members_by_id[ctx.user_id].user

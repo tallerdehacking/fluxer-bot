@@ -25,7 +25,8 @@ context = Context(bot, notion)
 @bot.event
 async def on_ready():
     await context.update_guild_state(app.guild_id)
-    logger.info(f"Bot is ready! {bot.user.username}")
+    if bot.user:
+        logger.info(f"Bot is ready! {bot.user.username}")
 
 
 @bot.event
