@@ -297,9 +297,8 @@ class Context:
                 )
                 voice_channel = await self.get_or_create_channel(
                     name=f"{role.name} (Voz)",
-                    type=fluxer.ChannelType.GUILD_TEXT,
+                    type=fluxer.ChannelType.GUILD_VOICE,
                     parent_id=voice_category.id,
-                    voice_channel=True,
                     guild=guild,
                 )
                 await self.add_channel_to_role(
@@ -346,11 +345,10 @@ class Context:
         name: str,
         type: fluxer.ChannelType,
         guild: fluxer.Guild,
-        voice_channel: bool = False,
         parent_id: int | None = None,
     ) -> fluxer.Channel:
         # Text created channels fix
-        if name in self.channels and voice_channel is True and not self.channels[name].is_voice_channel:
+        if name in self.channels and type == fluxer.ChannelType.GUILD_VOICE and not self.channels[name].is_voice_channel:
             logger.info(f"channel {name} was text but it should have been voice, deleting it...")
             if self.bot._http is not None:
                 await self.bot._http.delete_channel(self.channels[name].id)
@@ -359,7 +357,7 @@ class Context:
             logger.info(f"channel {name} does not exist, creating...")
             if self.bot._http is not None:
                 data = await self.bot._http.create_guild_channel(
-                    guild_id=guild.id, name=name, type=type, parent_id=parent_id, voice_channel=voice_channel
+                    guild_id=guild.id, name=name, type=type, parent_id=parent_id
                 )
                 self.channels[name] = fluxer.Channel.from_data(data)
         return self.channels[name]
